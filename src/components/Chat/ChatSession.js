@@ -24,13 +24,18 @@ class ChatJSClient {
   session = null;
 
   constructor(chatDetails, region, stage) {
+    // Check if we are rehydrating by looking for a participantToken
+    const isRehydrating = !!chatDetails.startChatResult.ParticipantToken;
+
     // Creating a chatSession object with Chat.JS
-    // Other operations (connecting, sending message, ...) are then done by interacting
-    // with the chatSession object (this.session)
     this.session = connect.ChatSession.create({
       chatDetails: chatDetails.startChatResult,
       type: "CUSTOMER",
-      options: { region: region },
+      options: { 
+        region: region,
+        // When rehydrating, the participantToken is required to reconnect to an existing session.
+        participantToken: isRehydrating ? chatDetails.startChatResult.ParticipantToken : null,
+      },
     });
   }
 
@@ -207,6 +212,14 @@ class ChatSession {
     "chat-closed": [],
   };
 
+  
+  // Static method to create a new or rehydrated chat session instance
+  static create(chatDetails, displayName, region, stage, customizationParams) {
+    const chatSession = new ChatSession(chatDetails, displayName, region, stage, customizationParams);
+    chatSession.subscribeToEvents();
+    return chatSession;
+  }
+
   constructor(chatDetails, displayName, region, stage, customizationParams) {
     this.client = new ChatJSClient(chatDetails, region, stage);
     this.customizationParams = customizationParams || {};
@@ -215,21 +228,49 @@ class ChatSession {
       participantId: this.client.getParticipantId(),
       displayName: displayName,
     };
-    if (window.connect) {
-      if (window.connect.LogManager) {
-        this.logger = window.connect.LogManager.getLogger({
-          prefix: DEFAULT_PREFIX,
-        });
-      }
-      if (window.connect.csmService) {
-        this.csmService = window.connect.csmService;
-      }
-    }
     if (window.connect && window.connect.LogManager) {
-      this.logger = window.connect.LogManager.getLogger({
-        prefix: DEFAULT_PREFIX,
-      });
+        this.logger = window.connect.LogManager.getLogger({
+            prefix: DEFAULT_PREFIX,
+        });
+        if (window.connect.csmService) {
+            this.csmService = window.connect.csmService;
+        }
     }
+    this._addEventListeners();
+  }
+
+  // Add the event listener subscriptions here to be called during creation
+  subscribeToEvents() {
+    // Listens for a 'rehydrateChat' event to trigger the rehydration process.
+    Eventbus.on("rehydrateChat", (data) => this.rehydrateChat(data));
+    this._addEventListeners();
+  }
+
+  /**
+  * The rehydration method triggered by the event bus. It reconnects to an existing session
+  * and loads the transcript.
+  * @param {Object} chatDetails - The details of the chat session to rehydrate.
+  */
+  rehydrateChat(chatDetails) {
+    const { contactId, participantId, participantToken } = chatDetails;
+    
+    // We already have a client with this information, so we can just connect
+    this._updateContactStatus(CONTACT_STATUS.CONNECTING);
+    this.client.connect().then(
+      () => {
+        // Upon successful connection, load the transcript
+        this._loadLatestTranscript();
+        this._updateContactStatus(CONTACT_STATUS.CONNECTED);
+      },
+      (error) => {
+        this._updateContactStatus(CONTACT_STATUS.DISCONNECTED);
+        this.logger && this.logger.error("Failed to rehydrate chat:", error);
+        localStorage.removeItem("chatSessionData"); // Clear data to allow a new chat
+        sessionStorage.removeItem('chatSessionData'); // Clear data to allow a new chat
+        this._triggerEvent("chat-disconnected");
+        return Promise.reject(error);
+      }
+    );
   }
 
   // Callbacks
@@ -268,11 +309,12 @@ class ChatSession {
 
   // CHAT API
   openChatSession() {
-    this._addEventListeners();
     this._updateContactStatus(CONTACT_STATUS.CONNECTING);
     return this.client.connect().then(
       (response) => {
         this._updateContactStatus(CONTACT_STATUS.CONNECTED);
+        // Loads the most recent chat transcript after a successful connection.
+        this._loadLatestTranscript();
         return response;
       },
       (error) => {
@@ -494,7 +536,7 @@ class ChatSession {
     this.client.onParticipantIdle(data => {
       this._handleIdleEvent(data);
     });
-    this.client.onChatRehydrated( async data => {
+    this.client.onChatRehydrated(async data => {
       await this._handleChatRehydrated(data);
     });
     this.client.onReadReceipt((data) => {

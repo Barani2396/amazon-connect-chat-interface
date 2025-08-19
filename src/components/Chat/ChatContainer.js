@@ -43,6 +43,7 @@ const Wrapper = styled.div`
 class ChatContainer extends Component {
   constructor(props) {
     super(props);
+
     this.state = {
       chatSession: null,
       composerConfig: {},
@@ -58,84 +59,197 @@ class ChatContainer extends Component {
       });
     }
   }
+  
+  componentDidMount() {
+    // On component mount, check for an existing chat session to rehydrate.
+    this.checkAndRehydrateChat();
+    // Listens for storage events to rehydrate if a chat session is started in another tab.
+    window.addEventListener('storage', this.onStorageChange);
+  }
 
   componentWillUnmount() {
     EventBus.off(this.submitChatInitiationHandler);
-  }
-
-  initiateChatSession(chatDetails, success, failure) {
-    const logContent = {
-      contactFlowId: chatDetails.contactFlowId ? chatDetails.contactFlowId : null,
-      instanceId: chatDetails.instanceId ? chatDetails.instanceId : null,
-      region: chatDetails.region ? chatDetails.region : null,
-      stage: chatDetails.stage ? chatDetails.stage : null,
-      featurePermissions: chatDetails.featurePermissions ? chatDetails.featurePermissions : null,
-      apiGatewayEndpoint: chatDetails.apiGatewayEndpoint ? chatDetails.apiGatewayEndpoint : null,
-    };
-    this.logger && this.logger.info("Chat session meta data:", logContent);
-    this.submitChatInitiation(chatDetails, success, failure);
+    window.removeEventListener('storage', this.onStorageChange);
   }
 
   /**
-   * Initiate a chat in 2 steps.
-   *
-   * Step 1: Create a chat session within Amazon Connect (more details in ChatInitiator.js)
-   * This step provides us with a 'chatDetails' object that contains among others:
-   * - Auth Token
-   * - Websocket endpoint
-   * - ContactId
-   * - ConnectionId
-   *
-   * Step 2: Connect to created chat session.
-   * Open a websocket connection via Chat.JS (more details in ChatSession.js)
-   *
-   * @param {*} input
-   * @param {*} success
-   * @param {*} failure
-   */
-  async submitChatInitiation(input, success, failure) {
-    this.setState({ status: "Initiating" });
-    const customizationParams = {
-      authenticationRedirectUri: input.authenticationRedirectUri || '',
-      authenticationIdentityProvider: input.authenticationIdentityProvider || ''
-    }
-    try {
-      const chatDetails = await initiateChat(input);
-      const chatSession = await this.openChatSession(chatDetails, input.name, input.region, input.stage, customizationParams);
-      setCurrentChatSessionInstance(chatSession);
-      const attachmentsEnabled =
-        (input.featurePermissions && input.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]) ||
-        (chatDetails.featurePermissions && chatDetails.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]);
-      const richMessagingEnabled = typeof input.supportedMessagingContentTypes === "string" ? input.supportedMessagingContentTypes.split(",").includes(ContentType.MESSAGE_CONTENT_TYPE.TEXT_MARKDOWN) : false;
-      const language = input.language || "en_US";
+  * Checks for an existing chat session in local or session storage and rehydrates it if found.
+  */
+  async checkAndRehydrateChat() { 
+    let chatSessionData =  localStorage.getItem('chatSessionData') || sessionStorage.getItem('chatSessionData') || null; 
 
-      this.setState({
-        status: "Initiated",
-        chatSession: chatSession,
+    if (chatSessionData) {
+      try {
+        const parsedData = JSON.parse(chatSessionData);
+        const chatDetails = parsedData.chatDetails;
+
+        if (chatDetails && chatDetails.startChatResult && chatDetails.startChatResult.ContactId && chatDetails.startChatResult.ParticipantId) {
+          this.logger.info("Found existing chat session based on persistence key. Rehydrating... V5");
+          this.logger.info("Data being passed to openChatSession from checkAndRehydrateChat:", chatDetails);
+
+          const chatSession = await this.openChatSession(
+            chatDetails,
+            parsedData.displayName,
+            parsedData.region,
+            parsedData.stage,
+            parsedData.customizationParams
+          );
+
+          this.setState({
+            status: "Initiated",
+            chatSession: chatSession,
+            composerConfig: parsedData.composerConfig,
+            language: parsedData.language
+          });
+          return;
+        }
+      } catch (error) {
+        this.logger.error("Failed to parse chat session data from persistence key. Starting new chat.", error);
+        localStorage.removeItem('chatSessionData');
+        sessionStorage.removeItem('chatSessionData');
+      }
+    }
+
+    this.setState({ status: "NotInitiated" });
+  }
+
+  /**
+  * Event handler for 'storage' events. Triggers rehydration logic when a chat session is saved in another tab.
+  */
+  onStorageChange = (event) => {
+    if (event.key === 'chatSessionData') {
+        this.logger.info("Storage event detected. Checking for new chat session.");
+        this.checkAndRehydrateChat();
+    }
+  }
+
+  initiateChatSession(chatDetails, success, failure) { 
+    const logContent = { 
+      contactFlowId: chatDetails.contactFlowId ? chatDetails.contactFlowId : null, 
+      instanceId: chatDetails.instanceId ? chatDetails.instanceId : null, 
+      region: chatDetails.region ? chatDetails.region : null, 
+      stage: chatDetails.stage ? chatDetails.stage : null, 
+      featurePermissions: chatDetails.featurePermissions ? chatDetails.featurePermissions : null, 
+      apiGatewayEndpoint: chatDetails.apiGatewayEndpoint ? chatDetails.apiGatewayEndpoint : null, 
+    }; 
+    this.logger && this.logger.info("Chat session meta data:", logContent); 
+    // Call the function to submit a new chat
+    this.submitChatInitiation(chatDetails, success, failure); 
+  } 
+
+  /** 
+  * Initiate a chat in 2 steps. 
+  * 
+  * Step 1: Create a chat session within Amazon Connect (more details in ChatInitiator.js) 
+  * This step provides us with a 'chatDetails' object that contains among others: 
+  * - Auth Token 
+  * - Websocket endpoint 
+  * - ContactId 
+  * - ConnectionId 
+  * 
+  * Step 2: Connect to created chat session. 
+  * Open a websocket connection via Chat.JS (more details in ChatSession.js) 
+  * 
+  * @param {*} input 
+  * @param {*} success 
+  * @param {*} failure 
+  */ 
+  async submitChatInitiation(input, success, failure) { 
+    this.setState({ status: "Initiating" }); 
+    const customizationParams = { 
+      authenticationRedirectUri: input.authenticationRedirectUri || '', 
+      authenticationIdentityProvider: input.authenticationIdentityProvider || '' 
+    } 
+    try { 
+      const chatDetails = await initiateChat(input);
+
+      // Add this log to see what data you're passing to openChatSession on first run
+      this.logger.info("Data being passed to openChatSession from submitChatInitiation:", chatDetails);
+ 
+      const chatSession = await this.openChatSession(chatDetails, input.name, input.region, input.stage, customizationParams); 
+
+      this.saveChatSession(input, chatDetails, customizationParams);
+
+      setCurrentChatSessionInstance(chatSession); 
+      const attachmentsEnabled = 
+        (input.featurePermissions && input.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]) || 
+        (chatDetails.featurePermissions && chatDetails.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]); 
+      const richMessagingEnabled = typeof input.supportedMessagingContentTypes === "string" ? input.supportedMessagingContentTypes.split(",").includes(ContentType.MESSAGE_CONTENT_TYPE.TEXT_MARKDOWN) : false; 
+      const language = input.language || "en_US"; 
+      this.setState({ 
+        status: "Initiated", 
+        chatSession: chatSession, 
+        composerConfig: { 
+          attachmentsEnabled, 
+          richMessagingEnabled, 
+        }, 
+        language 
+      }); 
+      success && success(chatSession); 
+    } catch (error) { 
+      this.setState({ status: "InitiateFailed" }); 
+      failure && failure(error); 
+    } 
+  }
+
+  /**
+  * Saves the chat session details to either local or session storage.
+  * Clears both storage types before saving to prevent conflicts.
+  */
+  saveChatSession(input, chatDetails, customizationParams) {
+    const storage = window[input.chatPersistence];
+
+    localStorage.removeItem('chatSessionData');
+    sessionStorage.removeItem('chatSessionData');
+
+    if (storage) {
+      const chatSessionData = {
+        chatDetails: chatDetails,
+        displayName: input.name, 
+        region: input.region,
+        stage: input.stage,
+        customizationParams: customizationParams,
+        language: input.language,
         composerConfig: {
-          attachmentsEnabled,
-          richMessagingEnabled,
-        },
-        language
-      });
-      success && success(chatSession);
-    } catch (error) {
-      this.setState({ status: "InitiateFailed" });
-      failure && failure(error);
+          attachmentsEnabled: (input.featurePermissions && input.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]) ||
+          (chatDetails.featurePermissions && chatDetails.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]),
+          richMessagingEnabled: typeof input.supportedMessagingContentTypes === "string" ? input.supportedMessagingContentTypes.split(",").includes(ContentType.MESSAGE_CONTENT_TYPE.TEXT_MARKDOWN) : false,
+        }
+      };
+      storage.setItem('chatSessionData', JSON.stringify(chatSessionData));
+    } else {
+      localStorage.removeItem('chatSessionData');
+      sessionStorage.removeItem('chatSessionData');
     }
   }
 
   openChatSession(chatDetails, name, region, stage, customizationParams) {
-    const chatSession = new ChatSession(chatDetails, name, region, stage, customizationParams);
+    // Handle data from either a new chat or a rehydrated chat.
+    const finalChatDetails = chatDetails.startChatResult ? chatDetails : { startChatResult: chatDetails };
+
+    // Create the new ChatSession instance
+    const chatSession = new ChatSession(
+      finalChatDetails, 
+      name, 
+      region, 
+      stage, 
+      customizationParams
+    );
+
+    // Set up event listeners
     chatSession.onChatClose(() => {
       EventBus.trigger("endChat", {});
     });
+
+    // Open the connection and return the session instance
     return chatSession.openChatSession().then(() => {
       return chatSession;
     });
   }
 
   resetState = () => {
+    localStorage.removeItem('chatSessionData'); // Clear session on reset
+    sessionStorage.removeItem('chatSessionData'); // Clear session on reset
     this.setState({ status: "NotInitiated", chatSession: null });
     this.logger && this.logger.info("Chat session is reset");
   };

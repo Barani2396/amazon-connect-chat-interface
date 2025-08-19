@@ -19,7 +19,25 @@ class ChatInterface {
 
   initiateChat(input, success, failure) {
     let chatInput  = Object.assign({}, this.clientConfig, input);
-    EventBus.trigger("initChat", chatInput, success, failure);
+    let chatSessionData = null;
+
+    const storageKey = input.chatPersistence;
+    const storage = window[storageKey];
+
+    if (storage) {
+      chatSessionData = JSON.parse(storage.getItem("chatSessionData"));
+    }
+
+    if (chatSessionData) {
+       // Trigger the 'rehydrateChat' event to re-establish a persisted session.
+      EventBus.trigger("rehydrateChat", {
+        ...chatInput,
+        ...chatSessionData,
+      }, success, failure);
+    } else {
+     // Trigger the 'initChat' event to start a brand new chat session.
+     EventBus.trigger("initChat", chatInput, success, failure);
+    }
   }
 }
 
