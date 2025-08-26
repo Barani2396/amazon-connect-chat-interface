@@ -92,14 +92,16 @@ class ChatContainer extends Component {
             parsedData.displayName,
             parsedData.region,
             parsedData.stage,
-            parsedData.customizationParams
+            parsedData.customizationParams,
+            parsedData.configuration
           );
 
           this.setState({
             status: "Initiated",
             chatSession: chatSession,
             composerConfig: parsedData.composerConfig,
-            language: parsedData.language
+            language: parsedData.language,
+            configuration: parsedData.configuration
           });
           return;
         }
@@ -159,16 +161,18 @@ class ChatContainer extends Component {
     const customizationParams = { 
       authenticationRedirectUri: input.authenticationRedirectUri || '', 
       authenticationIdentityProvider: input.authenticationIdentityProvider || '' 
-    } 
+    }
+    // Access the configuration object.
+    const configuration = input.configuration || {}; 
     try { 
       const chatDetails = await initiateChat(input);
 
       // Add this log to see what data you're passing to openChatSession on first run
       this.logger.info("Data being passed to openChatSession from submitChatInitiation:", chatDetails);
  
-      const chatSession = await this.openChatSession(chatDetails, input.name, input.region, input.stage, customizationParams); 
+      const chatSession = await this.openChatSession(chatDetails, input.name, input.region, input.stage, customizationParams, configuration); 
 
-      this.saveChatSession(input, chatDetails, customizationParams);
+      this.saveChatSession(input, chatDetails, customizationParams, configuration);
 
       setCurrentChatSessionInstance(chatSession); 
       const attachmentsEnabled = 
@@ -183,7 +187,8 @@ class ChatContainer extends Component {
           attachmentsEnabled, 
           richMessagingEnabled, 
         }, 
-        language 
+        language,
+        configuration: configuration
       }); 
       success && success(chatSession); 
     } catch (error) { 
@@ -196,8 +201,8 @@ class ChatContainer extends Component {
   * Saves the chat session details to either local or session storage.
   * Clears both storage types before saving to prevent conflicts.
   */
-  saveChatSession(input, chatDetails, customizationParams) {
-    const storage = window[input.chatPersistence];
+  saveChatSession(input, chatDetails, customizationParams, configuration) {
+    const storage = window[configuration.chatPersistence];
 
     localStorage.removeItem('chatSessionData');
     sessionStorage.removeItem('chatSessionData');
@@ -214,7 +219,8 @@ class ChatContainer extends Component {
           attachmentsEnabled: (input.featurePermissions && input.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]) ||
           (chatDetails.featurePermissions && chatDetails.featurePermissions[CHAT_FEATURE_TYPES.ATTACHMENTS]),
           richMessagingEnabled: typeof input.supportedMessagingContentTypes === "string" ? input.supportedMessagingContentTypes.split(",").includes(ContentType.MESSAGE_CONTENT_TYPE.TEXT_MARKDOWN) : false,
-        }
+        },
+        configuration: configuration
       };
       storage.setItem('chatSessionData', JSON.stringify(chatSessionData));
     } else {
@@ -223,7 +229,7 @@ class ChatContainer extends Component {
     }
   }
 
-  openChatSession(chatDetails, name, region, stage, customizationParams) {
+  openChatSession(chatDetails, name, region, stage, customizationParams, configuration) {
     // Handle data from either a new chat or a rehydrated chat.
     const finalChatDetails = chatDetails.startChatResult ? chatDetails : { startChatResult: chatDetails };
 
@@ -233,7 +239,8 @@ class ChatContainer extends Component {
       name, 
       region, 
       stage, 
-      customizationParams
+      customizationParams,
+      configuration
     );
 
     // Set up event listeners
@@ -285,6 +292,7 @@ class ChatContainer extends Component {
                   onEnded={this.resetState}
                   changeLanguage={changeLanguage}
                   language={this.state.language}
+                  configuration={this.state.configuration}
                   {...this.props} />
             </>)}
           </LanguageContext.Consumer>

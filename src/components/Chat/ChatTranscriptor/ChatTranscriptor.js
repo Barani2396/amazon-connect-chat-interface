@@ -59,6 +59,7 @@ export default class ChatTranscriptor extends PureComponent {
     contactStatus: PT.string.isRequired,
     loadPreviousTranscript: PT.func.isRequired,
     sendReadReceipt: PT.func.isRequired,
+    configuration: PT.object,
   };
 
   loadTranscript = () => {
@@ -104,6 +105,7 @@ export default class ChatTranscriptor extends PureComponent {
         textInputRef: this.props.textInputRef,
         isLatestMessage,
         sendReadReceipt: this.props.sendReadReceipt,
+        configuration: this.props.configuration,
       }
     } else if (itemDetails.type === ATTACHMENT_MESSAGE) {
       config = Object.assign({}, config, transcriptConfig.attachmentMessageConfig);
@@ -113,6 +115,7 @@ export default class ChatTranscriptor extends PureComponent {
         },
         isLatestMessage,
         sendReadReceipt: this.props.sendReadReceipt,
+        configuration: this.props.configuration,
       }
     } else if (modelUtils.isRecognizedEvent(itemDetails.content.type)) {
       config = Object.assign({}, config, transcriptConfig.systemMessageConfig);

@@ -128,6 +128,7 @@ export default class Chat extends Component {
     chatSession: PT.object.isRequired,
     composerConfig: PT.object,
     onEnded: PT.func,
+    configuration: PT.object,
   };
 
   static defaultProps = {
@@ -178,8 +179,10 @@ export default class Chat extends Component {
   }
 
   endChat() {
-    this.props.chatSession.endChat();
-    this.props.onEnded();
+      this.props.chatSession.endChat();
+      if(!this.props.configuration || !this.props.configuration.disableImmediateDisconnect) {
+        this.props.onEnded();
+      }
   }
 
   closeChat() {
@@ -215,6 +218,7 @@ export default class Chat extends Component {
             transcriptConfig={transcriptConfig}
             textInputRef={textInputRef}
             sendReadReceipt={(...inputParams) => chatSession.sendReadReceipt(...inputParams)}
+            configuration={this.props.configuration}
           />
           <ChatComposer
             contactStatus={this.state.contactStatus}

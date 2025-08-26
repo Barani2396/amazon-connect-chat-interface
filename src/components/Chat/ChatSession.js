@@ -214,13 +214,13 @@ class ChatSession {
 
   
   // Static method to create a new or rehydrated chat session instance
-  static create(chatDetails, displayName, region, stage, customizationParams) {
-    const chatSession = new ChatSession(chatDetails, displayName, region, stage, customizationParams);
+  static create(chatDetails, displayName, region, stage, customizationParams, configuration) {
+    const chatSession = new ChatSession(chatDetails, displayName, region, stage, customizationParams, configuration);
     chatSession.subscribeToEvents();
     return chatSession;
   }
 
-  constructor(chatDetails, displayName, region, stage, customizationParams) {
+  constructor(chatDetails, displayName, region, stage, customizationParams, configuration) {
     this.client = new ChatJSClient(chatDetails, region, stage);
     this.customizationParams = customizationParams || {};
     this.contactId = this.client.getContactId();
@@ -228,6 +228,7 @@ class ChatSession {
       participantId: this.client.getParticipantId(),
       displayName: displayName,
     };
+    this.configuration = configuration || {};
     if (window.connect && window.connect.LogManager) {
         this.logger = window.connect.LogManager.getLogger({
             prefix: DEFAULT_PREFIX,
@@ -326,9 +327,11 @@ class ChatSession {
 
   async endChat() {
     await this.client.disconnect();
-    this._updateContactStatus(CONTACT_STATUS.DISCONNECTED);
-    this._triggerEvent("chat-disconnected");
-    this._triggerEvent("chat-closed");
+    if (!this.configuration || !this.configuration.disableImmediateDisconnect) {
+        this._updateContactStatus(CONTACT_STATUS.DISCONNECTED);
+        this._triggerEvent("chat-disconnected");
+        this._triggerEvent("chat-closed");
+    }
   }
 
   closeChat() {

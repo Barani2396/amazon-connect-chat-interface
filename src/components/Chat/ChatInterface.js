@@ -21,7 +21,7 @@ class ChatInterface {
     let chatInput  = Object.assign({}, this.clientConfig, input);
     let chatSessionData = null;
 
-    const storageKey = input.chatPersistence;
+    const storageKey = chatInput.configuration.chatPersistence;
     const storage = window[storageKey];
 
     if (storage) {
@@ -33,6 +33,7 @@ class ChatInterface {
       EventBus.trigger("rehydrateChat", {
         ...chatInput,
         ...chatSessionData,
+        configuration: chatInput.configuration
       }, success, failure);
     } else {
      // Trigger the 'initChat' event to start a brand new chat session.

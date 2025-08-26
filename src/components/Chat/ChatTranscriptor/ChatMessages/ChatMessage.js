@@ -6,6 +6,7 @@ import { FormattedMessage } from "react-intl";
 import styled from "styled-components";
 import PT from "prop-types";
 import Linkify from "react-linkify";
+import ReactMarkdown from 'react-markdown';
 import { getCurrentChatSessionInstance } from "../../ChatSession";
 import {
   ATTACHMENT_MESSAGE,
@@ -418,7 +419,7 @@ export class ParticipantMessage extends PureComponent {
       let { action, data } = JSON.parse(content);
       if (!action.trim() && data)
         action = data.content;
-      return <PlainTextMessage content={action} />
+      return <PlainTextMessage content={action} configuration={this.props.configuration} />
     }
 
     if (contentType === ContentType.MESSAGE_CONTENT_TYPE.TEXT_MARKDOWN) {
@@ -428,10 +429,10 @@ export class ParticipantMessage extends PureComponent {
     this.triggerCountMetric(CSM_CONSTANTS.RENDER_PLAIN_MESSAGE)
     if (isCarouselSelectionMessage(content)) {
       const carouselAndNestedPickerTitle = formatCarouselInteractiveSelection(content);
-      return <PlainTextMessage content={carouselAndNestedPickerTitle} />
+      return <PlainTextMessage content={carouselAndNestedPickerTitle} configuration={this.props.configuration} />
     }
 
-    return <PlainTextMessage content={content} />
+    return <PlainTextMessage content={content} configuration={this.props.configuration} />
   }
 
   renderTransportError(error) {
@@ -466,10 +467,33 @@ export class ParticipantMessage extends PureComponent {
 }
 
 class PlainTextMessage extends PureComponent {
-  render() {
-    return (
-      <Linkify properties={{ target: "_blank" }}>{this.props.content}</Linkify>
-    );
+containsMarkdownLinks = (text) => {
+    const markdownLinkPattern = /\[(.*?)\]\((.*?)\)/;
+    return markdownLinkPattern.test(text);
+  };
+
+render() {
+    const { content, configuration } = this.props;
+    const enableLinks = configuration?.enableMarkDownLinksForIncomingMessage;
+
+    if (enableLinks && this.containsMarkdownLinks(content)) {
+      return (
+        <ReactMarkdown
+          components={{
+            a: ({ node, ...props }) => (
+              <a {...props} target="_blank" rel="noopener noreferrer" >
+                {props.children}
+              </a>
+            )
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      );
+    } 
+    else {
+      return (<Linkify properties={{ target: "_blank" }}>{this.props.content}</Linkify>);
+    }
   }
 }
 
